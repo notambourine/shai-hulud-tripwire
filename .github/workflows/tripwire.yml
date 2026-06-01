@@ -1,0 +1,38 @@
+# Reusable workflow — gives callers a complete, isolated, zero-secret gating
+# job in ~3 lines. Callers reference it as:
+#
+#   jobs:
+#     tripwire:
+#       uses: notambourine/shai-hulud-tripwire/.github/workflows/tripwire.yml@v1
+#     build:
+#       needs: tripwire          # build/deploy can't run until the scan is green
+#       ...
+#
+# This job holds NO secrets (permissions: contents: read), so it is safe to run
+# first and gate everything that does hold secrets.
+name: Supply-chain tripwire
+
+on:
+  workflow_call:
+    inputs:
+      allow-globs:
+        description: "Glob patterns whose content may contain IOC literals (passed through to the action)."
+        type: string
+        required: false
+        default: ""
+
+jobs:
+  supply-chain-tripwire:
+    name: Supply-chain tripwire (Shai-Hulud IOCs)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # Checks out the CALLER's repo (workflow_call runs in the caller's context).
+      - uses: actions/checkout@v4
+      # The composite action ships the scanner script; pinned to the v1 tag of
+      # this repo. Callers who pin the workflow to a SHA may also fork+pin here.
+      - name: Run Shai-Hulud tripwire
+        uses: notambourine/shai-hulud-tripwire@v1
+        with:
+          allow-globs: ${{ inputs.allow-globs }}

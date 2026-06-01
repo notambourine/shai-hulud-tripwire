@@ -1,0 +1,70 @@
+# Self-test: proves the scanner passes on this (clean) repo and fails on each
+# planted IOC class. Runs on every push/PR so a regression in the scanner is
+# caught before anyone depends on a broken release.
+name: self-test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clean repo passes (allow own docs)
+        env:
+          # This repo's README documents the IOCs, so its content is exempt.
+          TRIPWIRE_ALLOW: "*README.md"
+        run: bash scripts/supply-chain-tripwire.sh
+
+      - name: Planted dead-drop file fails
+        run: |
+          echo "x" > tanstack_runner.js
+          git add tanstack_runner.js
+          if bash scripts/supply-chain-tripwire.sh; then
+            echo "::error::expected tripwire to FAIL on planted payload, but it passed"; exit 1
+          fi
+          git rm --cached -q tanstack_runner.js; rm -f tanstack_runner.js
+          echo "ok: detected dead-drop file"
+
+      - name: Planted secret-dumping workflow fails
+        # Assemble the IOC literals at RUNTIME so THIS workflow file does not
+        # itself contain them (which would trip the scanner on the clean runs).
+        # No GitHub-expression braces either — those would interpolate.
+        run: |
+          marker="toJSON(""secrets)"
+          domain="webhook.""site"
+          {
+            echo "jobs:"
+            echo "  e:"
+            echo "    steps:"
+            echo "      - run: post ${marker} to ${domain}"
+          } > .github/workflows/evil.yml
+          git add .github/workflows/evil.yml
+          if bash scripts/supply-chain-tripwire.sh; then
+            echo "::error::expected tripwire to FAIL on secret-dumping workflow, but it passed"; exit 1
+          fi
+          git rm --cached -q .github/workflows/evil.yml; rm -f .github/workflows/evil.yml
+          echo "ok: detected secret-dumping workflow"
+
+      - name: Planted malicious package.json hook fails
+        run: |
+          mkdir -p _ioctest
+          printf '{"scripts":{"prepare":"bun run tanstack_runner.js && exit 1"}}' > _ioctest/package.json
+          git add _ioctest/package.json
+          if bash scripts/supply-chain-tripwire.sh; then
+            echo "::error::expected tripwire to FAIL on malicious lifecycle hook, but it passed"; exit 1
+          fi
+          git rm --cached -q _ioctest/package.json; rm -rf _ioctest
+          echo "ok: detected malicious lifecycle hook"
+
+      - name: Clean again passes
+        env:
+          TRIPWIRE_ALLOW: "*README.md"
+        run: bash scripts/supply-chain-tripwire.sh
