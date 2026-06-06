@@ -69,10 +69,13 @@ uses: notambourine/shai-hulud-tripwire@<full-40-char-sha>   # v1.x.y
 | Dead-drop payload files | `router_init.js`, `tanstack_runner.js`, `setup_bun.js`, `bun_environment.js`, `set_bun.js`, `gh-token-monitor.sh`, `router_runtime.js` |
 | Agent/editor persistence hooks | `.claude/setup.mjs`, `.vscode/setup.mjs`, `.claude/router_runtime.js` |
 | Secret-exfil workflows | any `.github/workflows/*` using `toJSON(secrets)` |
-| Exfiltration domains | `api.masscan.cloud`, `git-tanstack.com`, `*.getsession.org`, `webhook.site` |
-| Campaign markers | the `SHA1HULUD` runner name, the ransom token description |
+| Exfiltration domains | `api.masscan[.]cloud`, `git-tanstack[.]com`, `*.getsession[.]org`, `webhook[.]site` |
+| Campaign markers | the `SHA1[-]HULUD` runner name, the ransom token description |
 | Known payload hashes | published SHA-256 of `router_init.js` / `tanstack_runner.js` |
 | Malicious lifecycle hooks | `package.json` `preinstall`/`postinstall`/`prepare` invoking a known dropper or `bun.sh/install` |
+
+Domains and markers above are defanged (`[.]`, `[-]`) so this README never
+trips the scanner it documents.
 
 Filename, hash, and lifecycle-script checks are never exempted. Content scans
 (workflows/domains/markers) skip the scanner itself; if your repo *documents*

@@ -17,10 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Clean repo passes (allow own docs)
-        env:
-          # This repo's README documents the IOCs, so its content is exempt.
-          TRIPWIRE_ALLOW: "*README.md"
+      - name: Clean repo passes (no exemptions — own docs are defanged)
         run: bash scripts/supply-chain-tripwire.sh
 
       - name: Planted dead-drop file fails
@@ -65,6 +62,4 @@ jobs:
           echo "ok: detected malicious lifecycle hook"
 
       - name: Clean again passes
-        env:
-          TRIPWIRE_ALLOW: "*README.md"
         run: bash scripts/supply-chain-tripwire.sh
