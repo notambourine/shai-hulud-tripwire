@@ -66,11 +66,12 @@ uses: notambourine/shai-hulud-tripwire@<full-40-char-sha>   # v1.x.y
 
 | Class | Examples |
 |---|---|
-| Dead-drop payload files | `router_init.js`, `tanstack_runner.js`, `setup_bun.js`, `bun_environment.js`, `set_bun.js`, `gh-token-monitor.sh`, `router_runtime.js` |
+| Dead-drop payload files | `router_init.js`, `tanstack_runner.js`, `setup_bun.js`, `bun_environment.js`, `set_bun.js`, `gh-token-monitor.sh`, `router_runtime.js`, `langchain_core-setup.pth`, `ensmallen_haswell.abi3.so`, `ensmallen_core2.abi3.so` |
 | Agent/editor persistence hooks | `.claude/setup.mjs`, `.vscode/setup.mjs`, `.claude/router_runtime.js` |
+| Python `.pth` startup hooks | any tracked `*.pth` running an `import …; exec/os/subprocess` one-liner (Miasma/Hades PyPI wave) |
 | Secret-exfil workflows | any `.github/workflows/*` using `toJSON(secrets)` |
 | Exfiltration domains | `api.masscan[.]cloud`, `git-tanstack[.]com`, `*.getsession[.]org`, `webhook[.]site` |
-| Campaign markers | the `SHA1[-]HULUD` runner name, the ransom token description |
+| Campaign markers | the `SHA1[-]HULUD` runner name, the ransom token description, the `thebeautiful[march]oftime` / `thebeautiful[snads]oftime` C2-discovery strings |
 | Known payload hashes | published SHA-256 of `router_init.js` / `tanstack_runner.js` |
 | Malicious lifecycle hooks | `package.json` `preinstall`/`postinstall`/`prepare` invoking a known dropper or `bun.sh/install` |
 
@@ -138,6 +139,7 @@ fragmented (e.g. `"SHA1""HULUD"`) so the scanner never matches its own source.
 
 - Microsoft Security — *Shai-Hulud 2.0* (2025-12-09)
 - StepSecurity / Snyk / Sophos — *Mini Shai-Hulud* (2026-05)
+- Socket.dev — *Mini Shai-Hulud / Miasma / Hades worms target bioinformatics and MCP developers* (2026-06)
 - Unit 42 — npm supply-chain attack tracking
 - CISA — widespread npm ecosystem compromise alert
 

@@ -11,9 +11,10 @@
 # working tree, so it is safe to run as the FIRST job in a pipeline, before any
 # job that holds a secret. If it finds an IOC it exits non-zero.
 #
-# IOC sources (2025-09 -> 2026-05 campaigns):
+# IOC sources (2025-09 -> 2026-06 campaigns):
 #   - Microsoft Security: "Shai-Hulud 2.0" (2025-12-09)
 #   - StepSecurity / Snyk / Sophos: "Mini Shai-Hulud" (2026-05)
+#   - Socket.dev: "Mini Shai-Hulud / Miasma / Hades" PyPI + MCP wave (2026-06)
 #   - Unit 42 / CISA npm supply-chain advisories
 #
 # This catches the PERSISTENCE layer (workflows, dead-drop files, exfil
@@ -69,7 +70,14 @@ BAD_BASENAMES=(
   "set_bun.js"              # Shai-Hulud 2.0 — preinstall dropper
   "gh-token-monitor.sh"     # Mini Shai-Hulud — token-stealing daemon
   "router_runtime.js"       # Mini Shai-Hulud — Bun payload copy
+  "langchain_core-setup.pth" # Miasma/Hades — Python startup-hook dropper (PyPI wave)
+  "ensmallen_haswell.abi3.so" # Miasma/Hades — native import-time payload
+  "ensmallen_core2.abi3.so"  # Miasma/Hades — native import-time payload
 )
+# NB: the worm's run-once marker (/<tmp>/.bun_ran) and SSH-propagation file
+# (/tmp/.sshu-setup.js) are written to system temp at RUNTIME, never committed —
+# a git-tree scan can't see them. They're caught by the .pth/marker checks on the
+# code that drops them, not by basename here. Listed for the record, not scanned.
 for f in "${TRACKED[@]}"; do
   base="${f##*/}"
   for bad in "${BAD_BASENAMES[@]}"; do
@@ -96,6 +104,22 @@ for f in "${TRACKED[@]}"; do
   fi
 done
 
+# --- 2b. Python .pth startup-hook persistence -----------------------------
+# A .pth file in site-packages executes any line beginning with `import` at
+# interpreter startup. The Miasma/Hades PyPI wave plants `langchain_core-setup.pth`
+# carrying an `import ...; <exec>` one-liner so its payload runs on every `python`
+# invocation — a Python analogue of the agent/editor hooks above. Legit .pth files
+# only list directory paths; an `import`-line .pth carrying an exec sink in a SOURCE
+# tree is the anomaly. Content-based, so allowlistable (a repo may vendor a real one).
+PTH_EXEC_RE='^[[:space:]]*import[[:space:]].*(exec|eval|compile|os\.|subprocess|__import__|importlib|base64|urllib|socket)'
+for f in "${TRACKED[@]}"; do
+  is_allowed "$f" && continue
+  case "$f" in *.pth) ;; *) continue ;; esac
+  if grep -EqI "$PTH_EXEC_RE" "$f"; then
+    hit "Python .pth startup-hook executes code at interpreter startup: $f"
+  fi
+done
+
 # --- 3. exfiltration domains (anywhere in the tree) -----------------------
 # Hosts the campaigns POST stolen credentials to:
 #   api.masscan.cloud, git-tanstack.com, *.getsession.org (Mini Shai-Hulud);
@@ -113,7 +137,9 @@ done
 # Assembled from fragments so this script is not its own match.
 SHA1HULUD="SHA1""HULUD"                       # Shai-Hulud 2.0 runner agent name
 RANSOM="IfYouRevokeThisToken""ItWillWipeTheComputerOfTheOwner"
-MARKER_RE="${SHA1HULUD}|${RANSOM}"
+BEAUTIFUL1="thebeautiful""marchoftime"        # Miasma/Hades — C2-discovery fallback string
+BEAUTIFUL2="thebeautiful""snadsoftime"        # Miasma/Hades — C2-discovery fallback string (sic)
+MARKER_RE="${SHA1HULUD}|${RANSOM}|${BEAUTIFUL1}|${BEAUTIFUL2}"
 for f in "${TRACKED[@]}"; do
   is_allowed "$f" && continue
   if grep -EqI "$MARKER_RE" "$f"; then

@@ -61,5 +61,29 @@ jobs:
           git rm --cached -q _ioctest/package.json; rm -rf _ioctest
           echo "ok: detected malicious lifecycle hook"
 
+      - name: Planted Python .pth startup hook fails
+        # Build the import-exec line at runtime so this workflow file never
+        # contains it on the clean runs.
+        run: |
+          line="import os; os."'system("id")'
+          echo "$line" > _evil.pth
+          git add _evil.pth
+          if bash scripts/supply-chain-tripwire.sh; then
+            echo "::error::expected tripwire to FAIL on planted .pth startup hook, but it passed"; exit 1
+          fi
+          git rm --cached -q _evil.pth; rm -f _evil.pth
+          echo "ok: detected .pth startup hook"
+
+      - name: Planted campaign marker string fails
+        run: |
+          marker="thebeautiful""marchoftime"
+          echo "const c2 = '${marker}';" > _marker.js
+          git add _marker.js
+          if bash scripts/supply-chain-tripwire.sh; then
+            echo "::error::expected tripwire to FAIL on planted campaign marker, but it passed"; exit 1
+          fi
+          git rm --cached -q _marker.js; rm -f _marker.js
+          echo "ok: detected campaign marker string"
+
       - name: Clean again passes
         run: bash scripts/supply-chain-tripwire.sh
