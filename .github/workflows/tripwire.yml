@@ -29,10 +29,15 @@ jobs:
       contents: read
     steps:
       # Checks out the CALLER's repo (workflow_call runs in the caller's context).
-      - uses: actions/checkout@v4
+      # No credential persisted: the scan is read-only and never pushes.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
       # The composite action ships the scanner script; pinned to the v1 tag of
       # this repo. Callers who pin the workflow to a SHA may also fork+pin here.
+      # Intentional self-reference to our own release tag — SHA-pinning it would
+      # deadlock this repo's own tag-based release flow.
       - name: Run Shai-Hulud tripwire
-        uses: notambourine/shai-hulud-tripwire@v1
+        uses: notambourine/shai-hulud-tripwire@v1 # zizmor: ignore[unpinned-uses]
         with:
           allow-globs: ${{ inputs.allow-globs }}

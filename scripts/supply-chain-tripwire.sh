@@ -125,12 +125,15 @@ done
 #   api.masscan.cloud, git-tanstack.com, *.getsession.org (Mini Shai-Hulud);
 #   webhook.site (generic dead-drop reused across waves).
 EXFIL_RE="api\.masscan\.cloud|git-tanstack\.com|getsession\.org|webhook\.site"
-for f in "${TRACKED[@]}"; do
+# One `git grep` over the whole tree instead of forking a grep per tracked file
+# (an O(files) fork storm — ~3s on a 900-file repo). git grep is a single
+# multithreaded process; the (usually empty) match list is then filtered through
+# the bash allowlist so `is_allowed` semantics stay byte-identical. `|| true`:
+# git grep exits 1 when nothing matches, which is the common (clean) case.
+while IFS= read -r f; do
   is_allowed "$f" && continue
-  if grep -EqiI "$EXFIL_RE" "$f"; then
-    hit "known exfiltration domain referenced: $f"
-  fi
-done
+  hit "known exfiltration domain referenced: $f"
+done < <(git grep -EliI "$EXFIL_RE" 2>/dev/null || true)
 
 # --- 4. campaign marker strings -------------------------------------------
 # Runner-agent name, ransom token description, and worm self-identifiers.
@@ -140,12 +143,12 @@ RANSOM="IfYouRevokeThisToken""ItWillWipeTheComputerOfTheOwner"
 BEAUTIFUL1="thebeautiful""marchoftime"        # Miasma/Hades — C2-discovery fallback string
 BEAUTIFUL2="thebeautiful""snadsoftime"        # Miasma/Hades — C2-discovery fallback string (sic)
 MARKER_RE="${SHA1HULUD}|${RANSOM}|${BEAUTIFUL1}|${BEAUTIFUL2}"
-for f in "${TRACKED[@]}"; do
+# Single git grep, same batching as the exfil pass above. Case-sensitive (no
+# -i) to match the original per-file `grep -EqI`.
+while IFS= read -r f; do
   is_allowed "$f" && continue
-  if grep -EqI "$MARKER_RE" "$f"; then
-    hit "campaign marker string present: $f"
-  fi
-done
+  hit "campaign marker string present: $f"
+done < <(git grep -ElI "$MARKER_RE" 2>/dev/null || true)
 
 # Known payload SHA-256 hashes (Mini Shai-Hulud), pinned for defense in depth.
 KNOWN_HASHES=(
