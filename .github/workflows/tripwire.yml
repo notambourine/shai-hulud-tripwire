@@ -38,6 +38,6 @@ jobs:
       # Intentional self-reference to our own release tag — SHA-pinning it would
       # deadlock this repo's own tag-based release flow.
       - name: Run Shai-Hulud tripwire
-        uses: notambourine/shai-hulud-tripwire@v1 # zizmor: ignore[unpinned-uses]
+        uses: notambourine/shai-hulud-tripwire@v1.1.0 # zizmor: ignore[unpinned-uses]
         with:
           allow-globs: ${{ inputs.allow-globs }}
