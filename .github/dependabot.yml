@@ -1,0 +1,21 @@
+# Dependabot — fleet convention (twice-weekly cron, cooldown-gated).
+# Cadence: Mon & Wed 09:00 America/Chicago. Cooldown aligns the proposer
+# with the install-time age gate so it can't PR a release the gate blocks;
+# CVE security advisories bypass cooldown and still fast-track.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: cron
+      cronjob: "0 9 * * 1,3"
+      timezone: America/Chicago
+    cooldown:
+      default-days: 3
+    groups:
+      actions:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
