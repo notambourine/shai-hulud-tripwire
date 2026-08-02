@@ -12,6 +12,11 @@ updates:
       timezone: America/Chicago
     cooldown:
       default-days: 3
+    ignore:
+      # tripwire.yml's self-reference is this repo's version declaration, bumped
+      # by hand in a release PR. Dependabot can only ever name an already-released
+      # version there, so its PR is noise that triggers a no-op release run.
+      - dependency-name: notambourine/shai-hulud-tripwire
     groups:
       actions:
         patterns:
@@ -19,3 +24,9 @@ updates:
         update-types:
           - minor
           - patch
+      # A groups: block defaults to version-updates only, so without this stanza
+      # every advisory opens its own PR regardless of the repo's UI toggle.
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"

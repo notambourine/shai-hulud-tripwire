@@ -1,0 +1,74 @@
+# Releases on merge to main, mirroring notambourine/wormhook's release.yml.
+#
+# The version lives in exactly one place: tripwire.yml's self-reference to this
+# repo's own action. A release PR bumps that line, and merging it tags the merge
+# commit. The tag therefore contains a reference to itself, so a caller who pins
+# `tripwire.yml@<sha>` has frozen the action that job runs, not just the wrapper.
+# Idempotent: a merge that did not move the version finds the release already
+# there and no-ops, so docs and CI merges cost nothing.
+name: release
+
+on:
+  push:
+    branches: [main]
+
+# Read-only by default; the one job that writes opts up locally.
+permissions:
+  contents: read
+
+# Two merges in quick succession must not race for the same tag or leave the
+# major tag pointing at the older of them.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Tag and release are both created through the API, so this job never
+          # runs git push and does not need the token in .git/config.
+          persist-credentials: false
+
+      - name: Release when the self-reference names a new version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          f=.github/workflows/tripwire.yml
+          tag=$(sed -nE "s|^[[:space:]]+uses: notambourine/shai-hulud-tripwire@(v[0-9]+\.[0-9]+\.[0-9]+)([[:space:]].*)?$|\1|p" "$f")
+          if [ "$(printf '%s' "$tag" | grep -c .)" != "1" ]; then
+            echo "::error::expected exactly one semver self-reference in $f, got '$tag'"; exit 1
+          fi
+
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            echo "$tag already released; nothing to do"
+            exit 0
+          fi
+
+          gh release create "$tag" --repo "$REPO" --target "$SHA" \
+            --title "$tag" --generate-notes --latest
+          echo "released $tag"
+
+          # Move the major tag only on a real release, so it always names a
+          # released commit rather than whatever landed on main most recently.
+          major="${tag%%.*}"
+          if gh api "repos/$REPO/git/ref/tags/$major" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$REPO/git/refs/tags/$major" \
+              -f sha="$SHA" -F force=true >/dev/null
+          else
+            gh api -X POST "repos/$REPO/git/refs" \
+              -f ref="refs/tags/$major" -f sha="$SHA" >/dev/null
+          fi
+          echo "moved $major to $SHA"
