@@ -30,6 +30,34 @@ jobs:
             echo "::error::$f needs exactly one exact-semver self-reference, found $n"; exit 1
           fi
 
+      # Versioning is manual, so this turns "forgot to bump" into a red X instead
+      # of silent drift. Dependabot bumps actions/checkout inside tripwire.yml and
+      # cannot touch the version line (dependabot.yml ignores it), so without this
+      # its merge would land on main and never reach a consumer. Shipped surface
+      # only: self-test.yml, release.yml and README.md need no bump. Diffs against
+      # the PR's recorded base SHA, and sort -V requires forward, not merely different.
+      - name: Require version bump when the shipped surface changes (PRs only)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          f=.github/workflows/tripwire.yml
+          if git diff --quiet "$BASE_SHA" HEAD -- action.yml scripts/ "$f"; then
+            echo "no shipped-surface change; version bump not required"
+            exit 0
+          fi
+          ver() { sed -nE "s|^[[:space:]]+uses: notambourine/shai-hulud-tripwire@(v[0-9]+\.[0-9]+\.[0-9]+)([[:space:]].*)?$|\1|p"; }
+          old=$(git show "$BASE_SHA:$f" | ver)
+          new=$(ver < "$f")
+          if [ "$old" = "$new" ]; then
+            echo "::error file=$f::shipped surface changed but version is still $old; bump it (fix: patch, feat: minor, breaking: major)"; exit 1
+          fi
+          if [ "$(printf '%s\n%s\n' "$old" "$new" | sort -V | tail -n1)" != "$new" ]; then
+            echo "::error file=$f::version went backwards: $old -> $new"; exit 1
+          fi
+          echo "version bump OK: $old -> $new"
+
       - name: Clean repo passes (no exemptions — own docs are defanged)
         run: bash scripts/supply-chain-tripwire.sh
 
