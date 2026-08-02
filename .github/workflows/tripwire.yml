@@ -25,6 +25,9 @@ jobs:
   supply-chain-tripwire:
     name: Supply-chain tripwire (Shai-Hulud IOCs)
     runs-on: ubuntu-latest
+    # Billed to the CALLER, so the 360-minute default is not ours to inherit.
+    # The scan is sub-second; the budget is almost entirely for their checkout.
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -37,6 +40,6 @@ jobs:
       # Bump it in a release PR; merging tags that commit (see release.yml).
       # Not SHA-pinnable: the SHA does not exist until the commit holding it does.
       - name: Run Shai-Hulud tripwire
-        uses: notambourine/shai-hulud-tripwire@v1.1.2 # zizmor: ignore[unpinned-uses]
+        uses: notambourine/shai-hulud-tripwire@v1.1.3 # zizmor: ignore[unpinned-uses]
         with:
           allow-globs: ${{ inputs.allow-globs }}
