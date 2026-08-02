@@ -1,11 +1,29 @@
-# Releases on merge to main, mirroring notambourine/wormhook's release.yml.
+# Turns a merge into a release, so merging is the only ceremony.
 #
-# The version lives in exactly one place: tripwire.yml's self-reference to this
-# repo's own action. A release PR bumps that line, and merging it tags the merge
-# commit. The tag therefore contains a reference to itself, so a caller who pins
-# `tripwire.yml@<sha>` has frozen the action that job runs, not just the wrapper.
-# Idempotent: a merge that did not move the version finds the release already
-# there and no-ops, so docs and CI merges cost nothing.
+# WHY THIS IS ODD: this repo's own tripwire.yml calls this repo's own action, so
+# a release has to answer "which version of itself does this version call?". Get
+# it wrong and someone who pinned v1.1.3 runs v1.1.4's scanner. The answer here is
+# to have no separate VERSION file: that self-reference IS the version. The string
+# that must be right and the declaration of what it is are the same string, so
+# they cannot drift.
+#
+# On merge this does one of three things:
+#   1. the PR bumped the version  -> tag the merge commit, release, move v1
+#   2. nothing shipped changed    -> no-op (docs and CI merges cost nothing)
+#   3. shipped files changed but  -> bump the patch here, commit it, tag THAT
+#      the version did not           commit, release, move v1
+#
+# Case 3 is what keeps Dependabot honest. It bumps actions/checkout inside
+# tripwire.yml, which is the checkout that runs in the CALLER's repo, and it
+# cannot bump the version line. Without case 3 its merge would sit on main
+# unreleased forever and no consumer would ever get the fix. The alternative was
+# failing its PR to force a manual bump, which is a red X on a PR that should
+# just merge.
+#
+# Case 3 writes to main. That is safe in a way the old Dependabot behaviour was
+# not: the bump commit is created BEFORE the tag and the tag lands on it, so the
+# release still describes itself. GITHUB_TOKEN writes do not trigger workflows,
+# so this cannot loop.
 name: release
 
 on:
@@ -16,8 +34,8 @@ on:
 permissions:
   contents: read
 
-# Two merges in quick succession must not race for the same tag or leave the
-# major tag pointing at the older of them.
+# Two merges in quick succession must not race for the same tag, leave v1 on the
+# older of them, or collide on the same auto-patch number.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -35,11 +53,14 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Tag and release are both created through the API, so this job never
-          # runs git push and does not need the token in .git/config.
+          # Tags come from the release API, but case 3 diffs against the last
+          # release tag, which a shallow clone does not have.
+          fetch-depth: 0
+          # Every write below goes through the API, so this job never runs
+          # git push and does not need the token in .git/config.
           persist-credentials: false
 
-      - name: Release when the self-reference names a new version
+      - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -47,17 +68,49 @@ jobs:
         run: |
           set -euo pipefail
           f=.github/workflows/tripwire.yml
-          tag=$(sed -nE "s|^[[:space:]]+uses: notambourine/shai-hulud-tripwire@(v[0-9]+\.[0-9]+\.[0-9]+)([[:space:]].*)?$|\1|p" "$f")
-          if [ "$(printf '%s' "$tag" | grep -c .)" != "1" ]; then
-            echo "::error::expected exactly one semver self-reference in $f, got '$tag'"; exit 1
+          # Everything a consumer actually runs. Changes anywhere else (self-test,
+          # this file, README) are invisible to them and must not cut a release.
+          shipped=(action.yml scripts/ "$f")
+
+          ver() { sed -nE "s|^[[:space:]]+uses: notambourine/shai-hulud-tripwire@(v[0-9]+\.[0-9]+\.[0-9]+)([[:space:]].*)?$|\1|p" "$1"; }
+          declared=$(ver "$f")
+          if [ "$(printf '%s' "$declared" | grep -c .)" != "1" ]; then
+            echo "::error::expected exactly one semver self-reference in $f, got '$declared'"; exit 1
           fi
 
-          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
-            echo "$tag already released; nothing to do"
-            exit 0
+          # Case 1: the PR moved the version. Tag the merge commit as-is.
+          if ! gh release view "$declared" --repo "$REPO" >/dev/null 2>&1; then
+            tag="$declared"; target="$SHA"
+            echo "version bumped in the PR; releasing $tag"
+          else
+            # Case 2: declared version is already out and nothing shipped moved.
+            if git diff --quiet "$declared" HEAD -- "${shipped[@]}"; then
+              echo "$declared already released and no shipped change since; nothing to do"
+              exit 0
+            fi
+
+            # Case 3: shipped files moved without a bump. Take the next patch.
+            IFS=. read -r ma mi pa <<< "${declared#v}"
+            tag="v$ma.$mi.$((pa + 1))"
+            if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+              echo "::error::auto-patch wanted $tag but it already exists; bump $f by hand"; exit 1
+            fi
+            echo "shipped files changed since $declared; auto-patching to $tag"
+            git --no-pager diff --stat "$declared" HEAD -- "${shipped[@]}"
+
+            # Write the bump through the contents API: one commit, one file, no
+            # git push. The tag then lands on the commit that declares it.
+            sed -i -E "s|^([[:space:]]+uses: notambourine/shai-hulud-tripwire)@v[0-9.]+|\1@$tag|" "$f"
+            target=$(gh api -X PUT "repos/$REPO/contents/$f" \
+              -f message="release: $tag (auto-patch: shipped files changed without a bump)" \
+              -f branch=main \
+              -f sha="$(git rev-parse "HEAD:$f")" \
+              -f content="$(base64 -w0 < "$f")" \
+              --jq '.commit.sha')
+            echo "committed bump as $target"
           fi
 
-          gh release create "$tag" --repo "$REPO" --target "$SHA" \
+          gh release create "$tag" --repo "$REPO" --target "$target" \
             --title "$tag" --generate-notes --latest
           echo "released $tag"
 
@@ -66,9 +119,9 @@ jobs:
           major="${tag%%.*}"
           if gh api "repos/$REPO/git/ref/tags/$major" >/dev/null 2>&1; then
             gh api -X PATCH "repos/$REPO/git/refs/tags/$major" \
-              -f sha="$SHA" -F force=true >/dev/null
+              -f sha="$target" -F force=true >/dev/null
           else
             gh api -X POST "repos/$REPO/git/refs" \
-              -f ref="refs/tags/$major" -f sha="$SHA" >/dev/null
+              -f ref="refs/tags/$major" -f sha="$target" >/dev/null
           fi
-          echo "moved $major to $SHA"
+          echo "moved $major to $target"
