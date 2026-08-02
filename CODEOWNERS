@@ -1,0 +1,23 @@
+# Config dirs and dependency manifests need review before merge - both are
+# injection vectors (a SessionStart hook dropped into .claude/, a lockfile
+# edit that swaps a dependency). No leading slash: each pattern matches at
+# any depth, so a nested copy is owned from its first commit.
+
+.claude/ @tomfuertes
+.agents/ @tomfuertes
+.vscode/ @tomfuertes
+.github/ @tomfuertes
+
+package.json @tomfuertes
+package-lock.json @tomfuertes
+pnpm-lock.yaml @tomfuertes
+yarn.lock @tomfuertes
+requirements*.txt @tomfuertes
+Pipfile @tomfuertes
+Pipfile.lock @tomfuertes
+Gemfile @tomfuertes
+Gemfile.lock @tomfuertes
+go.mod @tomfuertes
+go.sum @tomfuertes
+Cargo.toml @tomfuertes
+Cargo.lock @tomfuertes
