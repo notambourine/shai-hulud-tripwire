@@ -12,6 +12,11 @@ updates:
       timezone: America/Chicago
     cooldown:
       default-days: 3
+    ignore:
+      # tripwire.yml's self-reference is owned by release.yml, which stamps it
+      # before tagging. A dependabot bump lands one commit after the tag, so the
+      # tag would ship a reference to the previous release.
+      - dependency-name: notambourine/shai-hulud-tripwire
     groups:
       actions:
         patterns:
