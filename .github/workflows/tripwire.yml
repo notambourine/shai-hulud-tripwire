@@ -33,10 +33,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # KEY-DECISION 2026-08-02: tag ref, not a SHA. A self-reference cannot be
-      # SHA-pinned: the SHA does not exist until the commit holding it does.
-      # release.yml stamps this line before tagging, so the tag is self-consistent.
-      # Edit it there, not here; dependabot.yml ignores this dependency.
+      # KEY-DECISION 2026-08-02: this ref is the repo's version declaration.
+      # Bump it in a release PR; merging tags that commit (see release.yml).
+      # Not SHA-pinnable: the SHA does not exist until the commit holding it does.
       - name: Run Shai-Hulud tripwire
         uses: notambourine/shai-hulud-tripwire@v1.1.1 # zizmor: ignore[unpinned-uses]
         with:

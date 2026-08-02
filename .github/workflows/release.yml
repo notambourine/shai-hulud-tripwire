@@ -1,89 +1,74 @@
-# Cuts a release. The ordering is the point: tripwire.yml's self-reference is
-# stamped to the new version and committed BEFORE the tag, so the tag contains a
-# reference to itself and `tripwire.yml@<sha>` is genuinely frozen. Dependabot
-# cannot do this: its bump lands one commit after the tag, which leaves every
-# release running the previous release's action.
+# Releases on merge to main, mirroring notambourine/wormhook's release.yml.
+#
+# The version lives in exactly one place: tripwire.yml's self-reference to this
+# repo's own action. A release PR bumps that line, and merging it tags the merge
+# commit. The tag therefore contains a reference to itself, so a caller who pins
+# `tripwire.yml@<sha>` has frozen the action that job runs, not just the wrapper.
+# Idempotent: a merge that did not move the version finds the release already
+# there and no-ops, so docs and CI merges cost nothing.
 name: release
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Semver to cut, leading v optional (e.g. 1.2.0)"
-        type: string
-        required: true
+  push:
+    branches: [main]
 
+# Read-only by default; the one job that writes opts up locally.
 permissions:
-  contents: write
+  contents: read
+
+# Two merges in quick succession must not race for the same tag or leave the
+# major tag pointing at the older of them.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  release:
+  tag:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history + tags: the version check reads existing tags, and the
-          # major tag is force-moved onto the release commit.
-          fetch-depth: 0
-          # This job pushes the release commit and both tags, so it needs creds.
-          persist-credentials: true # zizmor: ignore[artipacked]
+          # Tag and release are both created through the API, so this job never
+          # runs git push and does not need the token in .git/config.
+          persist-credentials: false
 
-      - name: Resolve and validate version
-        id: v
+      - name: Release when the self-reference names a new version
         env:
-          RAW: ${{ inputs.version }}
-          REF: ${{ github.ref }}
-        run: |
-          set -euo pipefail
-          if [ "$REF" != "refs/heads/main" ]; then
-            echo "::error::release must be dispatched from main, got $REF"; exit 1
-          fi
-          ver="v${RAW#v}"
-          if ! printf '%s' "$ver" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::version must be semver X.Y.Z, got '$RAW'"; exit 1
-          fi
-          if git rev-parse -q --verify "refs/tags/$ver" >/dev/null; then
-            echo "::error::tag $ver already exists"; exit 1
-          fi
-          {
-            echo "version=$ver"
-            echo "major=${ver%%.*}"
-          } >> "$GITHUB_OUTPUT"
-          echo "cutting $ver (major tag ${ver%%.*})"
-
-      - name: Stamp self-reference
-        env:
-          VERSION: ${{ steps.v.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           f=.github/workflows/tripwire.yml
-          sed -i -E "s|^([[:space:]]+uses: notambourine/shai-hulud-tripwire)@[^[:space:]]+|\1@${VERSION}|" "$f"
-          if ! grep -qF "uses: notambourine/shai-hulud-tripwire@${VERSION}" "$f"; then
-            echo "::error::self-reference not stamped in $f; did the step move?"; exit 1
+          tag=$(sed -nE "s|^[[:space:]]+uses: notambourine/shai-hulud-tripwire@(v[0-9]+\.[0-9]+\.[0-9]+)([[:space:]].*)?$|\1|p" "$f")
+          if [ "$(printf '%s' "$tag" | grep -c .)" != "1" ]; then
+            echo "::error::expected exactly one semver self-reference in $f, got '$tag'"; exit 1
           fi
-          git --no-pager diff -- "$f"
 
-      - name: Smoke-test the scanner
-        run: bash scripts/supply-chain-tripwire.sh
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            echo "$tag already released; nothing to do"
+            exit 0
+          fi
 
-      - name: Commit, tag, push
-        env:
-          VERSION: ${{ steps.v.outputs.version }}
-          MAJOR: ${{ steps.v.outputs.major }}
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git diff --quiet || git commit -am "release: $VERSION"
-          git tag -a "$VERSION" -m "$VERSION"
-          git tag -f -a "$MAJOR" -m "$MAJOR -> $VERSION"
-          git push origin HEAD:main
-          git push origin "$VERSION"
-          git push -f origin "$MAJOR"
+          gh release create "$tag" --repo "$REPO" --target "$SHA" \
+            --title "$tag" --generate-notes --latest
+          echo "released $tag"
 
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.v.outputs.version }}
-        run: gh release create "$VERSION" --verify-tag --latest --generate-notes
+          # Move the major tag only on a real release, so it always names a
+          # released commit rather than whatever landed on main most recently.
+          major="${tag%%.*}"
+          if gh api "repos/$REPO/git/ref/tags/$major" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$REPO/git/refs/tags/$major" \
+              -f sha="$SHA" -F force=true >/dev/null
+          else
+            gh api -X POST "repos/$REPO/git/refs" \
+              -f ref="refs/tags/$major" -f sha="$SHA" >/dev/null
+          fi
+          echo "moved $major to $SHA"

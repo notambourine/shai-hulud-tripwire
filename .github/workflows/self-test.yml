@@ -19,6 +19,16 @@ jobs:
         with:
           persist-credentials: false
 
+      # release.yml reads this line to decide what to tag. A floating ref, a
+      # branch, or a reworded step would stop releases without failing anything.
+      - name: Self-reference is a parseable exact version
+        run: |
+          f=.github/workflows/tripwire.yml
+          n=$(grep -cE "^[[:space:]]+uses: notambourine/shai-hulud-tripwire@v[0-9]+\.[0-9]+\.[0-9]+([[:space:]]|$)" "$f" || true)
+          if [ "$n" != "1" ]; then
+            echo "::error::$f needs exactly one exact-semver self-reference, found $n"; exit 1
+          fi
+
       - name: Clean repo passes (no exemptions — own docs are defanged)
         run: bash scripts/supply-chain-tripwire.sh
 
