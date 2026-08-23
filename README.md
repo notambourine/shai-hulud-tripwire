@@ -1,7 +1,7 @@
 # shai-hulud-tripwire
 
 A fail-fast CI guard against the **Shai-Hulud / Mini Shai-Hulud** self-spreading
-npm worm (2025-09 → 2026-05 waves). It runs as the **first** job in your
+npm worm (2025-09 to 2026-08 waves). It runs as the **first** job in your
 pipeline, holds **no secrets**, and does a pure git-tree scan — no
 `npm/pnpm install`, no network. Gate every secret-holding job (`build`,
 `deploy`, `publish`) behind it with `needs:`, and a force-pushed or
@@ -70,13 +70,20 @@ uses: notambourine/shai-hulud-tripwire@<full-40-char-sha>   # v1.x.y
 | Agent/editor persistence hooks | `.claude/setup.mjs`, `.vscode/setup.mjs`, `.claude/router_runtime.js` |
 | Python `.pth` startup hooks | any tracked `*.pth` running an `import …; exec/os/subprocess` one-liner (Miasma/Hades PyPI wave) |
 | Secret-exfil workflows | any `.github/workflows/*` using `toJSON(secrets)` |
-| Exfiltration domains | `api.masscan[.]cloud`, `git-tanstack[.]com`, `*.getsession[.]org`, `webhook[.]site` |
-| Campaign markers | the `SHA1[-]HULUD` runner name, the ransom token description, the `thebeautiful[march]oftime` / `thebeautiful[snads]oftime` C2-discovery strings |
-| Known payload hashes | published SHA-256 of `router_init.js` / `tanstack_runner.js` |
+| Campaign dropper workflow | `shai-hulud-workflow.yml` by name (Checkmarx published the name only, so the body is not greppable) |
+| Hidden Unicode in agent configs | zero-width codepoints in a tracked `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `copilot-instructions.md`, or anything under `.claude/` or `.cursor/` (TrapDoor). Emoji ZWJ, a leading BOM, and Persian/Urdu/Hindi ZWNJ orthography are exempt |
+| Exfiltration domains | `api.masscan[.]cloud`, `git-tanstack[.]com`, `*.getsession[.]org`, `webhook[.]site`, ChainDrop's `npm-cache[.]com` / `awqhnjewqjkl[.]icu` / `pypi-get[.]com` / `js-mirror[.]com`, node-ipc's `sh.azurestaticprovider[.]net` |
+| Campaign markers | the `SHA1[-]HULUD` runner name, the ransom token description, the `thebeautiful[march]oftime` / `thebeautiful[snads]oftime` C2-discovery strings, ChainDrop's `0xE1f2…3103` C2 contract, the `A9[-]0522` build tag with its resolver wallet and `:443/0x/…` endpoints, node-ipc's HMAC key and custom base-16 alphabet, and obfuscator.io's `const _0x…=_0x…;` accessor alias |
+| Known payload hashes | published SHA-256 of `router_init.js`, `tanstack_runner.js`, and the trojaned `node-ipc.cjs` |
 | Malicious lifecycle hooks | `package.json` `preinstall`/`postinstall`/`prepare` invoking a known dropper or `bun.sh/install` |
 
 Domains and markers above are defanged (`[.]`, `[-]`) so this README never
 trips the scanner it documents.
+
+The obfuscator.io accessor alias is the one marker here that names a *technique*
+rather than a campaign, so it is also the only one with a plausible false
+positive: a repo that commits its own obfuscated bundle should exempt that path
+with `allow-globs` below.
 
 Filename, hash, and lifecycle-script checks are never exempted. Content scans
 (workflows/domains/markers) skip the scanner itself; if your repo *documents*
@@ -137,11 +144,18 @@ fragmented (e.g. `"SHA1""HULUD"`) so the scanner never matches its own source.
 
 ## Sources
 
+- Checkmarx: *Shai-Hulud 1.0* (2025-09), the `shai-hulud-workflow.yml` dropper
 - Microsoft Security — *Shai-Hulud 2.0* (2025-12-09)
+- StepSecurity: trojaned `node-ipc` 9.1.6 / 9.2.3 / 12.0.1 (2026-05)
+- Phoenix Security: *TrapDoor* hidden-Unicode agent-config poisoning (2026-05)
 - StepSecurity / Snyk / Sophos — *Mini Shai-Hulud* (2026-05)
 - Socket.dev — *Mini Shai-Hulud / Miasma / Hades worms target bioinformatics and MCP developers* (2026-06)
+- Elastic / Microsoft / JFrog: *ChainDrop* keyv wave, on-chain C2 (2026-08)
 - Unit 42 — npm supply-chain attack tracking
 - CISA — widespread npm ecosystem compromise alert
+
+The `A9[-]0522` markers are field-observed with no vendor advisory behind them,
+a lower provenance tier than everything above.
 
 ## License
 
