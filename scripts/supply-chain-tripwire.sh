@@ -143,19 +143,25 @@ ZW_BYTES='\xe2\x80\x8b|[[:print:]]\xe2\x80\x8c|\xe2\x80\x8c[[:print:]]'
 # smuggled codepoint from emoji ZWJ, a leading BOM, and Persian/Urdu U+200C prose.
 ZW_BYTES="$ZW_BYTES"'|[[:print:]]\xe2\x81\xa0|\xe2\x81\xa0[[:print:]]'
 ZW_BYTES="$ZW_BYTES"'|[[:print:]]\xe2\x80\x8d|\xe2\x80\x8d[[:print:]]|[[:print:]]\xef\xbb\xbf'
+# Unicode Tag block (U+E0000-E007F), the ASCII-smuggling vector: leading form only,
+# so an emoji subdivision flag, whose tags follow a non-ASCII base, stays exempt.
+ZW_BYTES="$ZW_BYTES"'|[[:print:]]\xf3\xa0[\x80\x81]'
 ZW_RE=$(printf '%b' "$ZW_BYTES")
 
 # Prose configs get the zero-width test ONLY, never the greps above: a CLAUDE.md
 # documenting `curl ... | sh` is a README, a settings.json running one is wiring.
 is_agent_config() {
   case "${1##*/}" in CLAUDE.md|AGENTS.md|.cursorrules|copilot-instructions.md) return 0 ;; esac
-  case "$1" in .claude/*|.cursor/*) return 0 ;; esac
+  # Nested too: a monorepo carries a .claude/ per workspace, not just at the root.
+  case "$1" in .claude/*|.cursor/*|*/.claude/*|*/.cursor/*) return 0 ;; esac
   return 1
 }
 for f in "${TRACKED[@]}"; do
   is_allowed "$f" && continue
   is_agent_config "$f" || continue
-  if LC_ALL=C grep -qaE "$ZW_RE" "$f"; then
+  # -I, not -a: a committed binary asset under .claude/ would otherwise hard-fail
+  # the caller's pipeline on a 1-in-8-per-2MB chance of these three bytes.
+  if LC_ALL=C grep -qIE "$ZW_RE" "$f"; then
     hit "hidden zero-width Unicode in agent-instruction file: $f"
   fi
 done
